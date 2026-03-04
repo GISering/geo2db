@@ -32,6 +32,7 @@ pub fn run() {
             db_commands::load_config,
             db_commands::load_active_config,
             import_commands::import_file,
+            import_commands::cancel_import,
             import_commands::get_import_progress,
         ])
         .run(tauri::generate_context!())

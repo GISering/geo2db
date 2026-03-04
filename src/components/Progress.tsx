@@ -1,5 +1,6 @@
-import { Result, Progress, Button, Card, Statistic, Typography, Alert, List } from 'antd';
-import { CheckCircleFilled, CloseCircleFilled, ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Result, Progress, Button, Card, Statistic, Typography, Alert, List, Space } from 'antd';
+import { CheckCircleFilled, CloseCircleFilled, ReloadOutlined, LoadingOutlined, StopOutlined } from '@ant-design/icons';
+import { invoke } from '@tauri-apps/api/core';
 import type { ImportResult, ImportProgress } from '../types';
 
 const { Text } = Typography;
@@ -9,9 +10,10 @@ interface ProgressProps {
   progress: ImportProgress | null;
   result: ImportResult | null;
   onReset: () => void;
+  onCancel: () => void;
 }
 
-export function ProgressPanel({ isImporting, progress, result, onReset }: ProgressProps) {
+export function ProgressPanel({ isImporting, progress, result, onReset, onCancel }: ProgressProps) {
   if (isImporting) {
     const percent = progress ? Math.round((progress.current / progress.total) * 100) : 0;
 
@@ -33,6 +35,11 @@ export function ProgressPanel({ isImporting, progress, result, onReset }: Progre
               <Text type="secondary">
                 {progress?.current || 0} / {progress?.total || 0} 条记录
               </Text>
+            </div>
+            <div style={{ textAlign: 'center', marginTop: 16 }}>
+              <Button danger icon={<StopOutlined />} onClick={onCancel}>
+                取消导入
+              </Button>
             </div>
           </div>
         </Result>

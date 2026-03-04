@@ -4,15 +4,20 @@ use gdal::Dataset;
 use postgres::{NoTls};
 use r2d2_postgres::{PostgresConnectionManager, r2d2};
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 use log::{info, error};
 
-fn build_connection_string(config: &crate::models::DbConfig) -> String {
-    format!(
-        "host={} port={} dbname={} user={} password={} keepalives=1 keepalives_idle=30 application_name=spatial_import_tool",
-        config.host, config.port, config.database, config.username, config.password
-    )
+// 全局取消标志
+static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+pub fn cancel_import() -> bool {
+    info!("取消导入命令被调用");
+    CANCEL_FLAG.store(true, Ordering::SeqCst);
+    true
 }
 
 fn get_postgis_type(gdal_type: &str) -> &str {
@@ -391,9 +396,9 @@ fn do_import_in_background(
     let batch_size = if total_count <= 100 {
         total_count as usize / 10 + 1
     } else if total_count <= 1000 {
-        100
+        50
     } else {
-        1000
+        100
     };
 
     if total_count == 0 {
@@ -413,6 +418,24 @@ fn do_import_in_background(
     // 循环读取并导入，使用连接池获取连接
     let mut offset = 0;
     loop {
+        // 检查取消标志
+        if CANCEL_FLAG.load(Ordering::SeqCst) {
+            info!("导入已取消");
+            let _ = app_handle.emit("import-progress", ImportProgress {
+                current: offset as i64,
+                total: total_count,
+                status: "cancelled".to_string(),
+                message: "导入已取消".to_string(),
+            });
+            return ImportResult {
+                success: false,
+                imported_count,
+                error_count,
+                errors: vec!["用户取消了导入".to_string()],
+                duration_ms: start.elapsed().as_millis() as u64,
+            };
+        }
+
         // 从连接池获取连接
         let mut client = match pool.get() {
             Ok(c) => c,
@@ -545,6 +568,9 @@ fn do_import_in_background(
 #[tauri::command]
 pub fn import_file(config: ImportConfig, app_handle: AppHandle) -> Result<ImportResult, String> {
     info!("开始导入文件: {}", config.file_path);
+
+    // 重置取消标志
+    CANCEL_FLAG.store(false, Ordering::SeqCst);
 
     // 发送开始信号
     let _ = app_handle.emit("import-progress", ImportProgress {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button } from 'antd';
+import { invoke } from '@tauri-apps/api/core';
 import { useImport } from './hooks/useImport';
 import { Header, StepBar } from './components/Header';
 import { FileSelector } from './components/FileSelector';
@@ -48,6 +49,16 @@ function App() {
   const [showDbConfigEditor, setShowDbConfigEditor] = useState(false);
 
   const canProceedToImport = files.length > 0;
+
+  // 取消导入
+  const handleCancelImport = async () => {
+    try {
+      await invoke('cancel_import');
+      reset();
+    } catch (e) {
+      console.error('取消导入失败:', e);
+    }
+  };
 
   const handleNextStep = () => {
     if (step === 'files' && canProceedToImport) {
@@ -182,6 +193,7 @@ function App() {
               progress={importProgress}
               result={result}
               onReset={reset}
+              onCancel={handleCancelImport}
             />
           </div>
         )}
