@@ -186,6 +186,33 @@ export function useImport() {
     }
   }, [dbConfig, configName]);
 
+  // 测试指定配置的连接
+  const testConnectionForConfig = useCallback(async (config: DbConfig): Promise<boolean> => {
+    setIsTestingConnection(true);
+    setConnectionResult(null);
+    try {
+      const result = await invoke<ConnectionTestResult>('test_connection', { config });
+      setConnectionResult(result);
+
+      if (result.success) {
+        message.success('连接成功', 3);
+      } else {
+        message.error('连接失败: ' + result.message, 5);
+      }
+
+      return result.success;
+    } catch (error) {
+      setConnectionResult({
+        success: false,
+        message: String(error),
+        server_version: null,
+      });
+      return false;
+    } finally {
+      setIsTestingConnection(false);
+    }
+  }, []);
+
   // 保存配置
   const saveCurrentConfig = useCallback(async (name: string) => {
     console.log('saveCurrentConfig called with:', { name, dbConfig });
@@ -299,6 +326,7 @@ export function useImport() {
     result,
     startImport,
     testConnection,
+    testConnectionForConfig,
     isTestingConnection,
     connectionResult,
     importProgress,

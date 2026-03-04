@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Card,
   Form,
@@ -66,10 +66,13 @@ interface ImportConfigProps {
   isImporting: boolean;
   dbConfig: DbConfig;
   configList: NamedDbConfig[];
+  configName: string;
   onSelectDataSource: (name: string) => void;
   onAddDataSource: () => void;
   connectionResult: ConnectionTestResult | null;
   onTestConnection: () => Promise<any>;
+  onTestConnectionForConfig: (config: DbConfig) => Promise<boolean>;
+  onDeleteDataSource: (name: string) => Promise<boolean>;
   isTestingConnection: boolean;
 }
 
@@ -93,22 +96,20 @@ export function ImportConfigPanel({
   isImporting,
   dbConfig,
   configList,
+  configName,
   onSelectDataSource,
   onAddDataSource,
   connectionResult,
-  onTestConnection,
+  onTestConnectionForConfig,
+  onDeleteDataSource,
   isTestingConnection,
 }: ImportConfigProps) {
   const [selectedDsName, setSelectedDsName] = useState('');
 
-  const handleSelectChange = (value: string) => {
-    setSelectedDsName(value);
-    if (value === 'add_new') {
-      onAddDataSource();
-    } else if (value) {
-      onSelectDataSource(value);
-    }
-  };
+  // 同步 configName 到 selectedDsName
+  useEffect(() => {
+    setSelectedDsName(configName);
+  }, [configName]);
 
   if (!file) {
     return (
@@ -194,40 +195,24 @@ export function ImportConfigPanel({
         }
       >
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          {/* 数据源选择 */}
-          <Space size="small">
-            <Select
-              placeholder="选择数据源"
-              value={selectedDsName || undefined}
-              onChange={handleSelectChange}
-              style={{ width: 240 }}
-              allowClear
-            >
-              {configList.map((item) => (
-                <Select.Option key={item.name} value={item.name}>
-                  {item.name}
-                </Select.Option>
-              ))}
-              <Select.Option value="add_new">+ 添加新数据源</Select.Option>
-            </Select>
-            <Button onClick={onAddDataSource}>添加</Button>
-            <Button
-              onClick={onTestConnection}
-              loading={isTestingConnection}
-              disabled={!selectedDsName || !dbConfig.host}
-            >
-              测试
-            </Button>
-          </Space>
-
-          {/* 数据库连接信息 */}
-          {dbConfig.host && (
+          {/* 数据源表格 */}
+          <div style={{ marginBottom: 8 }}>
+            <Flex justify="space-between" align="center" style={{ marginBottom: 8 }}>
+              <Text type="secondary">数据源列表</Text>
+              <Button onClick={onAddDataSource} size="small">新增数据源</Button>
+            </Flex>
             <Table
               size="small"
               pagination={false}
-              dataSource={[dbConfig]}
-              rowKey="host"
+              dataSource={configList}
+              rowKey="name"
               columns={[
+                {
+                  title: '名称',
+                  dataIndex: 'name',
+                  key: 'name',
+                  width: 150,
+                },
                 {
                   title: '类型',
                   dataIndex: 'db_type',
@@ -237,33 +222,59 @@ export function ImportConfigPanel({
                 },
                 {
                   title: '地址',
-                  dataIndex: 'host',
-                  key: 'host',
-                  render: (host: string, record: DbConfig) => (
-                    <Text copyable>{host}:{record.port}</Text>
+                  key: 'address',
+                  width: 180,
+                  render: (_: any, record: NamedDbConfig) => (
+                    <Text copyable>{record.host}:{record.port}</Text>
                   ),
                 },
                 {
-                  title: '库名',
+                  title: '数据库',
                   dataIndex: 'database',
                   key: 'database',
-                  width: 150,
-                  render: (db: string) => <Text>{db}</Text>,
+                  width: 120,
                 },
                 {
-                  title: '用户',
+                  title: '用户名',
                   dataIndex: 'username',
                   key: 'username',
-                  width: 150,
-                  render: (user: string) => <Text>{user}</Text>,
+                  width: 120,
+                },
+                {
+                  title: '操作',
+                  key: 'actions',
+                  width: 200,
+                  render: (_: any, record: NamedDbConfig) => (
+                    <Space size="small">
+                      <Button
+                        size="small"
+                        type={record.name === selectedDsName ? 'primary' : 'default'}
+                        onClick={() => onSelectDataSource(record.name)}
+                      >
+                        选择
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => onTestConnectionForConfig(record)}
+                        loading={isTestingConnection && record.name === selectedDsName}
+                      >
+                        测试
+                      </Button>
+                      <Button
+                        size="small"
+                        danger
+                        onClick={() => onDeleteDataSource(record.name)}
+                      >
+                        删除
+                      </Button>
+                    </Space>
+                  ),
                 },
               ]}
             />
-          )}
+          </div>
         </Space>
       </Card>
-
-      {/* 导入设置卡片 */}
       <Card
         size="small"
         title={
@@ -274,36 +285,64 @@ export function ImportConfigPanel({
         }
       >
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          {/* 目标表名和坐标系统放一行 */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
-            <Space>
-              <Text type="secondary">目标表名:</Text>
-              <Input
-                value={tableName}
-                onChange={(e) => onTableNameChange(e.target.value)}
-                placeholder="输入表名"
-                style={{ width: 300 }}
-              />
-            </Space>
-            <Space>
-              <Text type="secondary">目标坐标系:</Text>
-              <Select
-                value={srs}
-                onChange={onSrsChange}
-                style={{ width: 300 }}
-              >
-                {commonSrs.map((s) => (
-                  <Select.Option key={s.value} value={s.value}>
-                    {s.label}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Space>
-          </div>
+          {/* 导入设置表格 */}
+          <Table
+            size="small"
+            pagination={false}
+            dataSource={[{
+              key: 'importSettings',
+              database: selectedDsName ? (
+                <Tag color="blue">{selectedDsName}</Tag>
+              ) : (
+                <Text type="secondary">未选择</Text>
+              ),
+              tableName: (
+                <Input
+                  value={tableName}
+                  onChange={(e) => onTableNameChange(e.target.value)}
+                  placeholder="输入表名"
+                  style={{ width: 300 }}
+                />
+              ),
+              srs: (
+                <Select
+                  value={srs}
+                  onChange={onSrsChange}
+                  style={{ width: 300 }}
+                >
+                  {commonSrs.map((s) => (
+                    <Select.Option key={s.value} value={s.value}>
+                      {s.label}
+                    </Select.Option>
+                  ))}
+                </Select>
+              ),
+            }]}
+            columns={[
+              {
+                title: '目标数据库',
+                dataIndex: 'database',
+                key: 'database',
+                width: '30%',
+              },
+              {
+                title: '目标表名',
+                dataIndex: 'tableName',
+                key: 'tableName',
+                width: '35%',
+              },
+              {
+                title: '目标坐标系',
+                dataIndex: 'srs',
+                key: 'srs',
+                width: '35%',
+              },
+            ]}
+          />
 
           <Divider style={{ margin: '8px 0' }} />
 
-          {/* 导入模式 - 横向排列 */}
+          {/* 导入模式 - 保持原有样式 */}
           <Form layout="inline">
             <Form.Item label={<Text type="secondary">导入模式</Text>}>
               <Radio.Group

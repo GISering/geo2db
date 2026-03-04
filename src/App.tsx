@@ -26,7 +26,9 @@ function App() {
     configList,
     selectConfig,
     saveCurrentConfig,
+    deleteConfig,
     testConnection,
+    testConnectionForConfig,
     isTestingConnection,
     connectionResult,
     tableName,
@@ -161,10 +163,13 @@ function App() {
               isImporting={isImporting}
               dbConfig={dbConfig}
               configList={configList}
+              configName={configName}
               onSelectDataSource={handleSelectDataSource}
               onAddDataSource={handleAddDataSource}
               connectionResult={connectionResult}
               onTestConnection={testConnection}
+              onTestConnectionForConfig={testConnectionForConfig}
+              onDeleteDataSource={deleteConfig}
               isTestingConnection={isTestingConnection}
             />
           </div>
