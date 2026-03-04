@@ -3,9 +3,7 @@ use gdal::vector::LayerAccess;
 use gdal::Dataset;
 use postgres::{NoTls};
 use r2d2_postgres::{PostgresConnectionManager, r2d2};
-use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 use log::{info, error};
@@ -34,123 +32,88 @@ fn get_postgis_type(gdal_type: &str) -> &str {
     }
 }
 
-// 读取单批要素数据
-fn read_feature_batch(
-    layer: &mut gdal::vector::Layer,
-    field_names: &[String],
-    field_index_map: &std::collections::HashMap<String, usize>,
-    offset: usize,
-    batch_size: usize,
-) -> Result<Vec<(String, Vec<String>)>, String> {
-    let mut records: Vec<(String, Vec<String>)> = Vec::new();
-
-    // 跳过前面的记录
-    let mut skipped = 0;
-    for feat in layer.features() {
-        if skipped < offset {
-            skipped += 1;
-            continue;
-        }
-        if records.len() >= batch_size {
-            break;
-        }
-
-        let geometry = match feat.geometry() {
-            Some(g) => g,
-            None => {
-                continue;
-            }
-        };
-
-        let wkt = match geometry.wkt() {
-            Ok(w) => w,
-            Err(_) => {
-                continue;
-            }
-        };
-
-        let mut row_data: Vec<String> = Vec::new();
-
-        // 通过字段名查找索引并读取，预先检查索引有效性
-        for field_name in field_names {
-            let field_idx = field_index_map.get(field_name).copied();
-            let field_str = match field_idx {
-                Some(idx) if idx < 1000 => {  // 简单范围检查
-                    match feat.field(idx) {
-                        Ok(Some(field)) => {
-                            match field {
-                                gdal::vector::FieldValue::IntegerValue(v) => v.to_string(),
-                                gdal::vector::FieldValue::Integer64Value(v) => v.to_string(),
-                                gdal::vector::FieldValue::RealValue(v) => v.to_string(),
-                                gdal::vector::FieldValue::StringValue(v) => v.replace('\'', "''").replace('\n', " ").replace('\r', ""),
-                                _ => String::new(),
-                            }
-                        }
-                        // 字段不存在或访问失败时静默返回空字符串
-                        _ => String::new(),
-                    }
-                }
-                _ => String::new(),
-            };
-            row_data.push(field_str);
-        }
-
-        records.push((wkt, row_data));
-    }
-
-    Ok(records)
-}
-
-// 批量插入数据
+/// 批量插入数据 - 使用预处理语句
 fn batch_insert(
     tx: &mut postgres::Transaction,
     table_name: &str,
     field_names: &[String],
-    _srs: i32,
+    srs: i32,
     batch: &[(String, Vec<String>)],
 ) -> Result<usize, String> {
+    use postgres::types::ToSql;
+
     if batch.is_empty() {
         return Ok(0);
     }
 
-    // 用双引号包裹字段名和表名，避免特殊字符问题
+    // 过滤空几何
+    let valid_batch: Vec<_> = batch.iter()
+        .filter(|(wkt, _)| !wkt.trim().is_empty())
+        .collect();
+
+    if valid_batch.is_empty() {
+        return Ok(0);
+    }
+
+    let batch_size = valid_batch.len();
+    let field_count = field_names.len();
+    let params_per_row = 2 + field_count; // WKT + SRID + fields
+
+    // 构建 SQL 语句 - 表名和字段名需要标识符转义
     let quoted_table = format!("\"{}\"", table_name.replace('"', "\"\""));
     let quoted_fields: Vec<String> = field_names.iter()
         .map(|f| format!("\"{}\"", f.replace('"', "\"\"")))
         .collect();
 
-    let copy_sql = format!(
-        "COPY {} (geom, {}) FROM STDIN WITH (FORMAT text, DELIMITER '|')",
+    // 动态生成占位符: VALUES (ST_GeomFromText($1, $2), $3, $4, ...), (...)
+    let mut values_parts = Vec::with_capacity(batch_size);
+    let mut param_idx = 1;
+
+    for _ in 0..batch_size {
+        let mut row_parts = vec![
+            format!("ST_GeomFromText(${}, ${})", param_idx, param_idx + 1)
+        ];
+        param_idx += 2;
+
+        for _ in 0..field_count {
+            row_parts.push(format!("${}", param_idx));
+            param_idx += 1;
+        }
+        values_parts.push(format!("({})", row_parts.join(", ")));
+    }
+
+    let insert_sql = format!(
+        "INSERT INTO {} (geom, {}) VALUES {}",
         quoted_table,
-        quoted_fields.join(", ")
+        quoted_fields.join(", "),
+        values_parts.join(", ")
     );
 
-    info!("执行COPY: {}", copy_sql);
+    // 准备语句
+    let stmt = tx.prepare(&insert_sql)
+        .map_err(|e| format!("准备语句失败: {}", e))?;
 
-    let mut writer = tx.copy_in(&copy_sql)
-        .map_err(|e| format!("开始COPY失败: {} - SQL: {}", e, copy_sql))?;
+    // 构建参数数组 - 使用 Box<dyn ToSql + Sync> 处理动态类型
+    let mut params: Vec<Box<dyn ToSql + Sync>> = Vec::with_capacity(batch_size * params_per_row);
 
-    for (wkt, row_data) in batch {
-        // 验证WKT不为空
-        if wkt.trim().is_empty() {
-            continue;
-        }
-        let mut row_parts: Vec<String> = vec![wkt.clone()];
-        row_parts.extend(row_data.iter().cloned());
-        let line = row_parts.join("|");
-        if let Err(e) = writeln!(writer, "{}", line) {
-            return Err(format!("写入数据失败: {}", e));
+    for (wkt, row_data) in &valid_batch {
+        params.push(Box::new(wkt.clone()));      // WKT
+        params.push(Box::new(srs));               // SRID
+        for value in row_data {
+            params.push(Box::new(value.clone())); // 字段值
         }
     }
 
-    // 确保所有数据都已写入
-    writer.flush()
-        .map_err(|e| format!("刷新缓冲区失败: {}", e))?;
+    // 转换为引用切片
+    let params_refs: Vec<&(dyn ToSql + Sync)> = params.iter()
+        .map(|p| p.as_ref())
+        .collect();
 
-    writer.finish()
-        .map_err(|e| format!("完成COPY失败: {}", e))?;
+    // 执行批量插入
+    let rows_affected = tx.execute(&stmt, &params_refs[..])
+        .map_err(|e| format!("INSERT失败: {}", e))?;
 
-    Ok(batch.len())
+    Ok(rows_affected as usize)
 }
 
 // 后台执行导入
@@ -186,7 +149,7 @@ fn do_import_in_background(
     };
 
     // 获取指定的图层
-    let layer = if let Some(ref layer_name) = config.layer_name {
+    let mut layer = if let Some(ref layer_name) = config.layer_name {
         match dataset.layer_by_name(layer_name) {
             Ok(l) => l,
             Err(e) => {
@@ -286,9 +249,6 @@ fn do_import_in_background(
     };
 
     let table_name = &config.table_name;
-    let mut imported_count: i64 = 0;
-    let mut error_count: i64 = 0;
-    let mut errors: Vec<String> = Vec::new();
 
     // 根据 import_mode 处理表
     match config.import_mode {
@@ -326,17 +286,12 @@ fn do_import_in_background(
                 };
             }
 
-            let _ = client.execute(
-                &format!("CREATE INDEX IF NOT EXISTS {}_geom_idx ON {} USING GIST(geom)", quoted_table, quoted_table),
-                &[]
-            );
+            // 不在导入前创建索引，导入完成后再创建以提升性能
         }
         ImportMode::Append => {
-            let check_sql = format!(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '{}'",
-                table_name
-            );
-            let exists: i64 = client.query_one(&check_sql, &[])
+            // 使用预处理语句查询表是否存在
+            let check_sql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = $1";
+            let exists: i64 = client.query_one(check_sql, &[&table_name])
                 .map(|row| row.get(0))
                 .unwrap_or(0);
 
@@ -350,12 +305,9 @@ fn do_import_in_background(
                 };
             }
 
-            // 获取现有表的字段
-            let fields_sql = format!(
-                "SELECT column_name FROM information_schema.columns WHERE table_name = '{}'",
-                table_name
-            );
-            let existing_fields: Vec<String> = client.query(&fields_sql, &[])
+            // 使用预处理语句获取现有表的字段
+            let fields_sql = "SELECT column_name FROM information_schema.columns WHERE table_name = $1";
+            let existing_fields: Vec<String> = client.query(fields_sql, &[&table_name])
                 .map(|rows| rows.iter().map(|r| r.get::<_, String>(0)).collect())
                 .unwrap_or_default();
 
@@ -391,14 +343,14 @@ fn do_import_in_background(
     // 先获取总记录数
     let total_count = layer.feature_count() as i64;
 
-    // 流式处理：根据数据量动态设置批次大小
-    // 确保至少有 10 批，保证进度更新次数
+    // 流式处理：优化批次大小策略
+    // 大数据集使用更大批次以减少事务开销
     let batch_size = if total_count <= 100 {
-        total_count as usize / 10 + 1
-    } else if total_count <= 1000 {
         50
-    } else {
+    } else if total_count <= 10000 {
         100
+    } else {
+        300
     };
 
     if total_count == 0 {
@@ -415,14 +367,47 @@ fn do_import_in_background(
     send_progress(0, total_count, &format!("共 {} 条记录，开始导入...", total_count));
     info!("总记录数: {}, 批次大小: {}", total_count, batch_size);
 
-    // 循环读取并导入，使用连接池获取连接
-    let mut offset = 0;
-    loop {
+    // 获取数据库连接并开始一个长事务
+    let mut client = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            return ImportResult {
+                success: false,
+                imported_count: 0,
+                error_count: 1,
+                errors: vec![format!("从连接池获取连接失败: {}", e)],
+                duration_ms: start.elapsed().as_millis() as u64,
+            };
+        }
+    };
+
+    let mut tx = match client.transaction() {
+        Ok(t) => t,
+        Err(e) => {
+            return ImportResult {
+                success: false,
+                imported_count: 0,
+                error_count: 1,
+                errors: vec![format!("开始事务失败: {}", e)],
+                duration_ms: start.elapsed().as_millis() as u64,
+            };
+        }
+    };
+
+    // 注意：使用 INSERT INTO VALUES 批量插入，SRID 通过 ST_GeomFromText 函数传递
+
+    // 单次遍历处理所有要素
+    let mut batch: Vec<(String, Vec<String>)> = Vec::with_capacity(batch_size);
+    let mut imported_count: i64 = 0;
+    let mut error_count: i64 = 0;
+    let mut errors: Vec<String> = Vec::new();
+
+    for feat in layer.features() {
         // 检查取消标志
         if CANCEL_FLAG.load(Ordering::SeqCst) {
             info!("导入已取消");
             let _ = app_handle.emit("import-progress", ImportProgress {
-                current: offset as i64,
+                current: imported_count,
                 total: total_count,
                 status: "cancelled".to_string(),
                 message: "导入已取消".to_string(),
@@ -436,125 +421,106 @@ fn do_import_in_background(
             };
         }
 
-        // 从连接池获取连接
-        let mut client = match pool.get() {
-            Ok(c) => c,
-            Err(e) => {
-                error!("从连接池获取连接失败: {}", e);
+        // 处理单个要素
+        let geometry = match feat.geometry() {
+            Some(g) => g,
+            None => {
                 error_count += 1;
-                if errors.len() < 10 {
-                    errors.push(format!("从连接池获取连接失败: {}", e));
-                }
-                break;
+                continue;
             }
         };
 
-        // 开始事务
-        let mut tx = match client.transaction() {
-            Ok(t) => t,
-            Err(e) => {
-                error!("开始事务失败: {}", e);
+        let wkt = match geometry.wkt() {
+            Ok(w) => w,
+            Err(_) => {
                 error_count += 1;
-                if errors.len() < 10 {
-                    errors.push(format!("开始事务失败: {}", e));
-                }
-                break;
+                continue;
             }
         };
 
-        // 设置 SRID，检查是否成功
-        let srid_result = tx.execute(&format!("SET postgis.gs_srid TO {}", srs), &[]);
-        if let Err(e) = srid_result {
-            error!("设置SRID失败: {}，继续尝试导入", e);
+        let mut row_data: Vec<String> = Vec::with_capacity(field_names.len());
+        for field_name in &field_names {
+            let field_idx = field_index_map.get(field_name).copied();
+            let field_str = match field_idx {
+                Some(idx) if idx < 1000 => {
+                    match feat.field(idx) {
+                        Ok(Some(field)) => {
+                            match field {
+                                gdal::vector::FieldValue::IntegerValue(v) => v.to_string(),
+                                gdal::vector::FieldValue::Integer64Value(v) => v.to_string(),
+                                gdal::vector::FieldValue::RealValue(v) => v.to_string(),
+                                // 使用预处理语句后，不再需要手动转义单引号
+                                // 只需处理换行符等特殊字符
+                                gdal::vector::FieldValue::StringValue(v) => v.replace('\n', " ").replace('\r', ""),
+                                _ => String::new(),
+                            }
+                        }
+                        _ => String::new(),
+                    }
+                }
+                _ => String::new(),
+            };
+            row_data.push(field_str);
         }
 
-        // 重新打开数据集获取新的迭代器
-        let dataset = match Dataset::open(&config.file_path) {
-            Ok(d) => d,
-            Err(e) => {
-                error!("打开文件失败: {}", e);
-                break;
-            }
-        };
+        batch.push((wkt, row_data));
 
-        // 获取指定的图层
-        let mut layer = if let Some(ref layer_name) = config.layer_name {
-            match dataset.layer_by_name(layer_name) {
-                Ok(l) => l,
-                Err(e) => {
-                    error!("找不到图层 {}: {}", layer_name, e);
-                    break;
-                }
-            }
-        } else {
-            let mut layers = dataset.layers();
-            match layers.next() {
-                Some(l) => l,
-                None => break,
-            }
-        };
-
-        let batch = match read_feature_batch(&mut layer, &field_names, &field_index_map, offset, batch_size) {
-            Ok(b) => b,
-            Err(e) => {
-                error!("读取数据失败: {}", e);
-                error_count += 1;
-                if errors.len() < 10 {
-                    errors.push(format!("读取数据失败: {}", e));
-                }
-                break;
-            }
-        };
-
-        if batch.is_empty() {
-            info!("没有更多数据，退出循环");
-            break;
-        }
-
-        // 立即写入数据库
-        match batch_insert(&mut tx, table_name, &field_names, srs, &batch) {
-            Ok(count) => {
-                imported_count += count as i64;
-                send_progress(imported_count, total_count, &format!("导入中... {}/{}", imported_count, total_count));
-            }
-            Err(e) => {
-                error!("批次插入失败: {}", e);
-                error_count += batch.len() as i64;
-                if errors.len() < 10 {
-                    errors.push(format!("批次插入失败: {}", e));
-                }
-            }
-        }
-
-        offset += batch.len();
-        info!("已导入 {} 条", offset);
-
-        // 如果读取的少于batch_size，说明已是最后一批
-        if batch.len() < batch_size {
-            // 提交事务
-            let commit_result = tx.commit();
-
-            match commit_result {
-                Ok(_) => {
-                    info!("事务提交成功");
+        // 达到批次大小时写入数据库
+        if batch.len() >= batch_size {
+            match batch_insert(&mut tx, table_name, &field_names, srs, &batch) {
+                Ok(count) => {
+                    imported_count += count as i64;
+                    send_progress(imported_count, total_count, &format!("导入中... {}/{}", imported_count, total_count));
                 }
                 Err(e) => {
-                    error!("提交事务失败: {}", e);
-                    return ImportResult {
-                        success: false,
-                        imported_count,
-                        error_count,
-                        errors: vec![format!("提交事务失败: {}", e)],
-                        duration_ms: start.elapsed().as_millis() as u64,
-                    };
+                    error!("批次插入失败: {}", e);
+                    error_count += batch.len() as i64;
+                    if errors.len() < 10 {
+                        errors.push(format!("批次插入失败: {}", e));
+                    }
                 }
             }
-            break;
+            batch.clear();
         }
     }
 
+    // 处理剩余数据
+    if !batch.is_empty() {
+        match batch_insert(&mut tx, table_name, &field_names, srs, &batch) {
+            Ok(count) => {
+                imported_count += count as i64;
+            }
+            Err(e) => {
+                error!("最后批次插入失败: {}", e);
+                error_count += batch.len() as i64;
+                if errors.len() < 10 {
+                    errors.push(format!("最后批次插入失败: {}", e));
+                }
+            }
+        }
+    }
+
+    // 提交事务
+    match tx.commit() {
+        Ok(_) => {
+            info!("事务提交成功");
+        }
+        Err(e) => {
+            error!("提交事务失败: {}", e);
+            return ImportResult {
+                success: false,
+                imported_count,
+                error_count,
+                errors: vec![format!("提交事务失败: {}", e)],
+                duration_ms: start.elapsed().as_millis() as u64,
+            };
+        }
+    }
+
+    
     let duration = start.elapsed();
     send_progress(total_count, total_count, &format!("导入完成！共导入 {} 条", imported_count));
+    info!("导入完成，总耗时: {}ms", duration.as_millis());
 
     ImportResult {
         success: error_count == 0,

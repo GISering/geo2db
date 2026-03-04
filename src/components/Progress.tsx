@@ -1,6 +1,5 @@
-import { Result, Progress, Button, Card, Statistic, Typography, Alert, List, Space } from 'antd';
+import { Result, Progress, Button, Card, Statistic, Typography, Alert, List } from 'antd';
 import { CheckCircleFilled, CloseCircleFilled, ReloadOutlined, LoadingOutlined, StopOutlined } from '@ant-design/icons';
-import { invoke } from '@tauri-apps/api/core';
 import type { ImportResult, ImportProgress } from '../types';
 
 const { Text } = Typography;

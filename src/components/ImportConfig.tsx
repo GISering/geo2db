@@ -94,7 +94,7 @@ export function ImportConfigPanel({
   onImportModeChange,
   onStartImport,
   isImporting,
-  dbConfig,
+  dbConfig: _dbConfig,
   configList,
   configName,
   onSelectDataSource,
