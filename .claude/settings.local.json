@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "Bash(cp:*)",
+      "Bash(rustc:*)",
+      "Bash(brew:*)",
+      "Bash(brew install:*)",
+      "Bash(curl:*)",
+      "Bash(source:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(gcc:*)",
+      "Bash(lsof:*)",
+      "Bash(export:*)",
+      "Bash(echo:*)",
+      "Bash(/bin/bash:*)",
+      "Bash(open:*)",
+      "Bash(osascript:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo check:*)",
+      "Bash(pkill:*)",
+      "Bash(rm:*)",
+      "Bash(mkdir:*)",
+      "Bash(cargo doc --open gdal)",
+      "Bash(npm:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+[package]
+name = "spatial-import-tool"
+version = "0.1.0"
+description = "空间数据导入工具 - 将 shapefile、geopackage 导入到数据库"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "spatial_import_tool_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# 空间数据处理
+gdal = { version = "0.19", features = [] }
+
+# PostgreSQL
+postgres = "0.19"
+postgis = "0.9"
+r2d2 = "0.8"
+r2d2_postgres = "0.18"
+
+# 达梦数据库 (通过 JDBC)
+# jni-rs = "0.5"
+
+# 异步运行时
+tokio = { version = "1", features = ["full"] }
+
+# 日志
+log = "0.4"
+env_logger = "0.11"
+
+# 其他
+thiserror = "1"
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+base64 = "0.22"
+aes-gcm = "0.10"
+rand = "0.8"
+dirs = "5"
