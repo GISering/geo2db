@@ -25,7 +25,8 @@
       "Bash(mkdir:*)",
       "Bash(cargo doc --open gdal)",
       "Bash(npm:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(ogrinfo:*)"
     ]
   }
 }

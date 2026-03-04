@@ -7,9 +7,56 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 use log::{info, error};
+use postgres::types::ToSql;
 
 // 全局取消标志
 static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
+
+/// 字段值枚举 - 支持不同数据类型
+#[derive(Clone, Debug)]
+enum FieldValue {
+    Integer(i32),
+    Integer64(i64),
+    Real(f32),      // 使用 f32 匹配 PostgreSQL REAL 类型
+    Double(f64),    // 用于 DOUBLE PRECISION 类型
+    Text(String),
+    Null,
+}
+
+impl ToSql for FieldValue {
+    fn to_sql(
+        &self,
+        ty: &postgres::types::Type,
+        out: &mut bytes::BytesMut,
+    ) -> Result<postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        match self {
+            FieldValue::Integer(v) => {
+                <i32 as ToSql>::to_sql(v, ty, out)
+            }
+            FieldValue::Integer64(v) => {
+                <i64 as ToSql>::to_sql(v, ty, out)
+            }
+            FieldValue::Real(v) => {
+                // f32 对应 PostgreSQL REAL (float4)
+                <f32 as ToSql>::to_sql(v, ty, out)
+            }
+            FieldValue::Double(v) => {
+                // f64 对应 PostgreSQL DOUBLE PRECISION (float8)
+                <f64 as ToSql>::to_sql(v, ty, out)
+            }
+            FieldValue::Text(v) => {
+                <String as ToSql>::to_sql(v, ty, out)
+            }
+            FieldValue::Null => Ok(postgres::types::IsNull::Yes),
+        }
+    }
+
+    fn accepts(_ty: &postgres::types::Type) -> bool {
+        true
+    }
+
+    postgres::types::to_sql_checked!();
+}
 
 #[tauri::command]
 pub fn cancel_import() -> bool {
@@ -38,10 +85,8 @@ fn batch_insert(
     table_name: &str,
     field_names: &[String],
     srs: i32,
-    batch: &[(String, Vec<String>)],
+    batch: &[(String, Vec<FieldValue>)],
 ) -> Result<usize, String> {
-    use postgres::types::ToSql;
-
     if batch.is_empty() {
         return Ok(0);
     }
@@ -89,18 +134,27 @@ fn batch_insert(
         values_parts.join(", ")
     );
 
+    // 打印调试信息
+    info!("SQL: {}", insert_sql.chars().take(300).collect::<String>());
+    if let Some((wkt, row_data)) = valid_batch.first() {
+        info!("第一行数据: WKT长度={}, 字段值={:?}", wkt.len(), row_data);
+    }
+
     // 准备语句
     let stmt = tx.prepare(&insert_sql)
-        .map_err(|e| format!("准备语句失败: {}", e))?;
+        .map_err(|e| {
+            error!("准备语句失败: {:?}", e);
+            format!("准备语句失败: {}", e)
+        })?;
 
-    // 构建参数数组 - 使用 Box<dyn ToSql + Sync> 处理动态类型
+    // 构建参数数组
     let mut params: Vec<Box<dyn ToSql + Sync>> = Vec::with_capacity(batch_size * params_per_row);
 
     for (wkt, row_data) in &valid_batch {
         params.push(Box::new(wkt.clone()));      // WKT
         params.push(Box::new(srs));               // SRID
         for value in row_data {
-            params.push(Box::new(value.clone())); // 字段值
+            params.push(Box::new(value.clone())); // 字段值（保持原始类型）
         }
     }
 
@@ -109,9 +163,14 @@ fn batch_insert(
         .map(|p| p.as_ref())
         .collect();
 
+    info!("参数数量: {}", params_refs.len());
+
     // 执行批量插入
     let rows_affected = tx.execute(&stmt, &params_refs[..])
-        .map_err(|e| format!("INSERT失败: {}", e))?;
+        .map_err(|e| {
+            error!("INSERT失败: {:?}", e);
+            format!("INSERT失败: {}", e)
+        })?;
 
     Ok(rows_affected as usize)
 }
@@ -323,6 +382,16 @@ fn do_import_in_background(
                     duration_ms: start.elapsed().as_millis() as u64,
                 };
             }
+
+            // Append 模式下需要删除表重建，因为字段类型可能不匹配
+            // 更好的方案是让用户使用 Replace 模式
+            return ImportResult {
+                success: false,
+                imported_count: 0,
+                error_count: 1,
+                errors: vec![format!("表 {} 已存在，请使用 Replace 模式删除并重建表", table_name)],
+                duration_ms: start.elapsed().as_millis() as u64,
+            };
         }
     }
 
@@ -345,8 +414,8 @@ fn do_import_in_background(
 
     // 流式处理：优化批次大小策略
     // 大数据集使用更大批次以减少事务开销
-    let batch_size = if total_count <= 100 {
-        50
+    let batch_size = if total_count <= 500 {
+        10
     } else if total_count <= 10000 {
         100
     } else {
@@ -397,7 +466,7 @@ fn do_import_in_background(
     // 注意：使用 INSERT INTO VALUES 批量插入，SRID 通过 ST_GeomFromText 函数传递
 
     // 单次遍历处理所有要素
-    let mut batch: Vec<(String, Vec<String>)> = Vec::with_capacity(batch_size);
+    let mut batch: Vec<(String, Vec<FieldValue>)> = Vec::with_capacity(batch_size);
     let mut imported_count: i64 = 0;
     let mut error_count: i64 = 0;
     let mut errors: Vec<String> = Vec::new();
@@ -438,29 +507,34 @@ fn do_import_in_background(
             }
         };
 
-        let mut row_data: Vec<String> = Vec::with_capacity(field_names.len());
+        let mut row_data: Vec<FieldValue> = Vec::with_capacity(field_names.len());
         for field_name in &field_names {
             let field_idx = field_index_map.get(field_name).copied();
-            let field_str = match field_idx {
+            let field_value = match field_idx {
                 Some(idx) if idx < 1000 => {
                     match feat.field(idx) {
                         Ok(Some(field)) => {
                             match field {
-                                gdal::vector::FieldValue::IntegerValue(v) => v.to_string(),
-                                gdal::vector::FieldValue::Integer64Value(v) => v.to_string(),
-                                gdal::vector::FieldValue::RealValue(v) => v.to_string(),
-                                // 使用预处理语句后，不再需要手动转义单引号
-                                // 只需处理换行符等特殊字符
-                                gdal::vector::FieldValue::StringValue(v) => v.replace('\n', " ").replace('\r', ""),
-                                _ => String::new(),
+                                gdal::vector::FieldValue::IntegerValue(v) => FieldValue::Integer(v),
+                                gdal::vector::FieldValue::Integer64Value(v) => FieldValue::Integer64(v),
+                                gdal::vector::FieldValue::RealValue(v) => FieldValue::Real(v as f32),
+                                gdal::vector::FieldValue::StringValue(v) => {
+                                    // 清理特殊字符
+                                    let cleaned: String = v.chars()
+                                        .filter(|c| *c != '\0' && *c != '\r')
+                                        .map(|c| if c == '\n' { ' ' } else { c })
+                                        .collect();
+                                    FieldValue::Text(cleaned)
+                                }
+                                _ => FieldValue::Null,
                             }
                         }
-                        _ => String::new(),
+                        _ => FieldValue::Null,
                     }
                 }
-                _ => String::new(),
+                _ => FieldValue::Null,
             };
-            row_data.push(field_str);
+            row_data.push(field_value);
         }
 
         batch.push((wkt, row_data));

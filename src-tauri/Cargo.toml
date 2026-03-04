@@ -28,6 +28,7 @@ postgres = "0.19"
 postgis = "0.9"
 r2d2 = "0.8"
 r2d2_postgres = "0.18"
+bytes = "1"
 
 # 达梦数据库 (通过 JDBC)
 # jni-rs = "0.5"
