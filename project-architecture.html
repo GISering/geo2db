@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spatial Import Tool - 代码逻辑架构</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e4e4e4;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+        }
+        .architecture {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        .section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .section h2 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #00d4ff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .section h2 .icon {
+            font-size: 1.8rem;
+        }
+        .component {
+            background: rgba(0,212,255,0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid #00d4ff;
+        }
+        .component h3 {
+            color: #00d4ff;
+            margin-bottom: 8px;
+            font-size: 1.1rem;
+        }
+        .component p {
+            color: #aaa;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        .data-flow {
+            margin-top: 40px;
+        }
+        .flow-title {
+            text-align: center;
+            font-size: 1.8rem;
+            margin-bottom: 30px;
+            color: #7b2cbf;
+        }
+        .flow-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .flow-step {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .step-number {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #00d4ff, #7b2cbf);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+        .step-content {
+            flex: 1;
+            background: rgba(123,44,191,0.2);
+            border-radius: 10px;
+            padding: 20px;
+            border: 1px solid rgba(123,44,191,0.3);
+        }
+        .step-content h4 {
+            color: #c77dff;
+            margin-bottom: 10px;
+        }
+        .step-content ul {
+            list-style: none;
+            padding-left: 15px;
+        }
+        .step-content li {
+            position: relative;
+            padding: 5px 0;
+            color: #ccc;
+        }
+        .step-content li::before {
+            content: "→";
+            position: absolute;
+            left: -15px;
+            color: #00d4ff;
+        }
+        .arrow {
+            text-align: center;
+            font-size: 2rem;
+            color: #00d4ff;
+            padding: 10px 0;
+        }
+        .models-section {
+            margin-top: 40px;
+        }
+        .models-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+        .model-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .model-card h4 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+            font-size: 1rem;
+        }
+        .field {
+            display: flex;
+            padding: 5px 0;
+            border-bottom: 1px dashed rgba(255,255,255,0.1);
+        }
+        .field-name {
+            color: #7b2cbf;
+            font-weight: bold;
+            width: 100px;
+            flex-shrink: 0;
+        }
+        .field-type {
+            color: #888;
+        }
+        .commands-section {
+            margin-top: 40px;
+        }
+        .commands-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .commands-table th, .commands-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .commands-table th {
+            background: rgba(0,212,255,0.2);
+            color: #00d4ff;
+        }
+        .commands-table tr:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .code-tag {
+            background: rgba(123,44,191,0.3);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+        }
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        .tech-stack {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+        .tech-badge {
+            background: linear-gradient(135deg, rgba(0,212,255,0.3), rgba(123,44,191,0.3));
+            padding: 8px 16px;
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.2);
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Spatial Import Tool</h1>
+        <p class="subtitle">空间数据导入工具 - 代码逻辑架构分析</p>
+
+        <div class="tech-stack">
+            <span class="tech-badge">Tauri 2</span>
+            <span class="tech-badge">React</span>
+            <span class="tech-badge">TypeScript</span>
+            <span class="tech-badge">Rust</span>
+            <span class="tech-badge">GDAL</span>
+            <span class="tech-badge">PostgreSQL/PostGIS</span>
+        </div>
+
+        <!-- 架构概览 -->
+        <div class="architecture">
+            <!-- 前端架构 -->
+            <div class="section">
+                <h2><span class="icon">⚛️</span> 前端架构 (React + TypeScript)</h2>
+
+                <div class="component">
+                    <h3>App.tsx - 主应用组件</h3>
+                    <p>应用的入口组件，管理三个步骤状态：files → import → progress。协调所有子组件的交互。</p>
+                </div>
+
+                <div class="component">
+                    <h3>useImport Hook - 状态管理核心</h3>
+                    <p>自定义 Hook，集中管理所有应用状态，包括文件选择、数据库配置、导入设置、进度追踪等。通过 Tauri invoke 与后端通信。</p>
+                </div>
+
+                <div class="component">
+                    <h3>FileSelector.tsx - 文件选择器</h3>
+                    <p>负责文件选择、图层浏览、显示文件信息（格式、要素数量、几何类型、字段列表）。</p>
+                </div>
+
+                <div class="component">
+                    <h3>DbConfig.tsx / DbConfigList.tsx - 数据库配置</h3>
+                    <p>管理数据库连接配置（PostgreSQL/Dameng），支持保存、加载、测试连接。</p>
+                </div>
+
+                <div class="component">
+                    <h3>ImportConfig.tsx - 导入配置</h3>
+                    <p>配置表名、空间参考系统(SRS)、导入模式（CreateNew/Append/Replace）。</p>
+                </div>
+
+                <div class="component">
+                    <h3>Progress.tsx - 进度显示</h3>
+                    <p>显示导入进度条、已导入数量、错误信息、完成状态。</p>
+                </div>
+            </div>
+
+            <!-- 后端架构 -->
+            <div class="section">
+                <h2><span class="icon">🦀</span> 后端架构 (Rust/Tauri)</h2>
+
+                <div class="component">
+                    <h3>lib.rs - 应用入口</h3>
+                    <p>初始化 GDAL 环境、注册 Tauri 命令、配置插件（opener、dialog、fs）。</p>
+                </div>
+
+                <div class="component">
+                    <h3>file_commands.rs - 文件操作命令</h3>
+                    <p>list_files: 获取多个文件信息<br>get_file_info: 获取单个文件详情<br>list_layers: 列出文件中的所有图层<br>get_supported_drivers: 返回支持的格式</p>
+                </div>
+
+                <div class="component">
+                    <h3>db_commands.rs - 数据库命令</h3>
+                    <p>test_connection: 测试数据库连接<br>save_config: 保存配置到本地<br>load_config: 加载配置列表<br>delete_config: 删除配置</p>
+                </div>
+
+                <div class="component">
+                    <h3>import_commands.rs - 导入核心逻辑</h3>
+                    <p>import_file: 异步执行导入，通过事件发送进度<br>read_feature_batch: 批量读取要素<br>batch_insert: 使用 COPY 命令批量插入</p>
+                </div>
+
+                <div class="component">
+                    <h3>postgres.rs - 数据库层</h3>
+                    <p>PostgreSQL 连接管理、配置持久化到 ~/.config/spatial-import-tool/db_config.json</p>
+                </div>
+
+                <div class="component">
+                    <h3>gdal/mod.rs - GDAL 处理器</h3>
+                    <p>使用 GDAL 库读取 Shapefile、GeoPackage、GeoJSON、KML 格式，获取图层、字段、空间参考信息。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 数据模型 -->
+        <div class="models-section section">
+            <h2><span class="icon">📦</span> 数据模型 (models/mod.rs & types/index.ts)</h2>
+            <div class="models-grid">
+                <div class="model-card">
+                    <h4>DbConfig - 数据库配置</h4>
+                    <div class="field"><span class="field-name">db_type</span><span class="field-type">DbType (PostgreSQL/Dameng)</span></div>
+                    <div class="field"><span class="field-name">host</span><span class="field-type">String</span></div>
+                    <div class="field"><span class="field-name">port</span><span class="field-type">u16</span></div>
+                    <div class="field"><span class="field-name">database</span><span class="field-type">String</span></div>
+                    <div class="field"><span class="field-name">username</span><span class="field-type">String</span></div>
+                    <div class="field"><span class="field-name">password</span><span class="field-type">String</span></div>
+                </div>
+
+                <div class="model-card">
+                    <h4>FileInfo - 文件信息</h4>
+                    <div class="field"><span class="field-name">path</span><span class="field-type">String</span></div>
+                    <div class="field"><span class="field-name">name</span><span class="field-type">String</span></div>
+                    <div class="field"><span class="field-name">format</span><span class="field-type">String (Shapefile/GeoPackage...)</span></div>
+                    <div class="field"><span class="field-name">layer_name</span><span class="field-type">String</span></div>
+                    <div class="field"><span class="field-name">feature_count</span><span class="field-type">i64</span></div>
+                    <div class="field"><span class="field-name">geometry_type</span><span class="field-type">String</span></div>
+                    <div class="field"><span class="field-name">fields</span><span class="field-type">Vec&lt;FieldInfo&gt;</span></div>
+                    <div class="field"><span class="field-name">srs</span><span class="field-type">Option&lt;SpatialRefInfo&gt;</span></div>
+                </div>
+
+                <div class="model-card">
+                    <h4>ImportConfig - 导入配置</h4>
+                    <div class="field"><span class="field-name">db_config</span><span class="field-type">DbConfig</span></div>
+                    <div class="field"><span class="field-name">file_path</span><span class="field-type">String</span></div>
+                    <div class="field"><span class="field-name">layer_name</span><span class="field-type">Option&lt;String&gt;</span></div>
+                    <div class="field"><span class="field-name">table_name</span><span class="field-type">String</span></div>
+                    <div class="field"><span class="field-name">srs</span><span class="field-type">Option&lt;String&gt;</span></div>
+                    <div class="field"><span class="field-name">import_mode</span><span class="field-type">ImportMode</span></div>
+                </div>
+
+                <div class="model-card">
+                    <h4>ImportResult - 导入结果</h4>
+                    <div class="field"><span class="field-name">success</span><span class="field-type">bool</span></div>
+                    <div class="field"><span class="field-name">imported_count</span><span class="field-type">i64</span></div>
+                    <div class="field"><span class="field-name">error_count</span><span class="field-type">i64</span></div>
+                    <div class="field"><span class="field-name">errors</span><span class="field-type">Vec&lt;String&gt;</span></div>
+                    <div class="field"><span class="field-name">duration_ms</span><span class="field-type">u64</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 数据流程 -->
+        <div class="data-flow section">
+            <h2 class="flow-title"><span class="icon">🔄</span> 数据导入流程</h2>
+            <div class="flow-container">
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h4>用户选择文件</h4>
+                        <ul>
+                            <li>前端调用 Tauri dialog 插件打开文件选择对话框</li>
+                            <li>调用 <span class="code-tag">list_files</span> 命令获取文件信息</li>
+                            <li>GDAL 读取文件元数据（格式、图层、字段、SRS）</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="arrow">↓</div>
+
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h4>配置数据库连接</h4>
+                        <ul>
+                            <li>用户填写数据库连接参数或选择已保存的配置</li>
+                            <li>调用 <span class="code-tag">test_connection</span> 验证连接</li>
+                            <li>成功后自动保存配置到本地 JSON 文件</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="arrow">↓</div>
+
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h4>设置导入参数</h4>
+                        <ul>
+                            <li>设置目标表名（自动从文件名生成）</li>
+                            <li>选择空间参考系统（默认 EPSG:4326 或从文件读取）</li>
+                            <li>选择导入模式：CreateNew / Append / Replace</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="arrow">↓</div>
+
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h4>执行导入</h4>
+                        <ul>
+                            <li>调用 <span class="code-tag">import_file</span> 启动后台线程</li>
+                            <li>创建 PostgreSQL 连接池（r2d2）</li>
+                            <li>根据模式创建/删除/检查表结构</li>
+                            <li>添加 geom 字段（GEOMETRY 类型）和空间索引</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="arrow">↓</div>
+
+                <div class="flow-step">
+                    <div class="step-number">5</div>
+                    <div class="step-content">
+                        <h4>批量数据处理</h4>
+                        <ul>
+                            <li>循环读取要素批次（动态批次大小：100-1000）</li>
+                            <li>GDAL 将几何转换为 WKT 格式</li>
+                            <li>使用 PostgreSQL COPY 命令批量插入</li>
+                            <li>发送 <span class="code-tag">import-progress</span> 事件更新进度</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="arrow">↓</div>
+
+                <div class="flow-step">
+                    <div class="step-number">6</div>
+                    <div class="step-content">
+                        <h4>完成导入</h4>
+                        <ul>
+                            <li>发送 <span class="code-tag">import-complete</span> 事件</li>
+                            <li>前端显示导入结果（成功数量、错误、耗时）</li>
+                            <li>用户可重置回到文件选择步骤</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tauri 命令列表 -->
+        <div class="commands-section section">
+            <h2><span class="icon">⚡</span> Tauri 命令 API</h2>
+            <table class="commands-table">
+                <thead>
+                    <tr>
+                        <th>命令</th>
+                        <th>参数</th>
+                        <th>返回值</th>
+                        <th>功能描述</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="code-tag">list_files</span></td>
+                        <td>paths: Vec&lt;String&gt;</td>
+                        <td>Vec&lt;FileInfo&gt;</td>
+                        <td>获取多个空间数据文件的信息</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-tag">get_file_info</span></td>
+                        <td>path: String, layer_name: Option&lt;String&gt;</td>
+                        <td>FileInfo</td>
+                        <td>获取单个文件指定图层的详细信息</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-tag">list_layers</span></td>
+                        <td>path: String</td>
+                        <td>Vec&lt;LayerInfo&gt;</td>
+                        <td>列出文件中的所有图层</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-tag">test_connection</span></td>
+                        <td>config: DbConfig</td>
+                        <td>ConnectionTestResult</td>
+                        <td>测试数据库连接是否成功</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-tag">save_config</span></td>
+                        <td>config: DbConfig, name: String</td>
+                        <td>Result&lt;(), String&gt;</td>
+                        <td>保存数据库配置到本地</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-tag">load_config</span></td>
+                        <td>-</td>
+                        <td>DbConfigList</td>
+                        <td>加载已保存的配置列表</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-tag">delete_config</span></td>
+                        <td>name: String</td>
+                        <td>Result&lt;(), String&gt;</td>
+                        <td>删除指定的配置</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-tag">import_file</span></td>
+                        <td>config: ImportConfig</td>
+                        <td>ImportResult</td>
+                        <td>执行空间数据导入（异步，通过事件返回结果）</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 导入模式说明 -->
+        <div class="section">
+            <h2><span class="icon">📋</span> 导入模式详解</h2>
+            <div class="models-grid">
+                <div class="model-card">
+                    <h4>CreateNew - 创建新表</h4>
+                    <p style="color: #aaa; font-size: 0.9rem;">
+                        创建新表，如果表已存在则失败。表结构包括：
+                        <br>• gid SERIAL PRIMARY KEY
+                        <br>• geom GEOMETRY
+                        <br>• 各字段（根据 GDAL 类型映射）
+                        <br>• 空间索引 (GIST)
+                    </p>
+                </div>
+                <div class="model-card">
+                    <h4>Append - 追加数据</h4>
+                    <p style="color: #aaa; font-size: 0.9rem;">
+                        追加数据到现有表。前提条件：
+                        <br>• 表必须已存在
+                        <br>• 必须有 geom 字段
+                        <br>• 字段结构应匹配（不匹配的字段会被忽略）
+                    </p>
+                </div>
+                <div class="model-card">
+                    <h4>Replace - 替换表</h4>
+                    <p style="color: #aaa; font-size: 0.9rem;">
+                        删除现有表并重新创建。相当于：
+                        <br>• DROP TABLE IF EXISTS
+                        <br>• 然后执行 CreateNew 流程
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 关键技术点 -->
+        <div class="section full-width">
+            <h2><span class="icon">💡</span> 关键技术实现</h2>
+            <div class="models-grid">
+                <div class="model-card">
+                    <h4>异步导入机制</h4>
+                    <p style="color: #aaa; font-size: 0.9rem;">
+                        import_file 在后台线程执行，立即返回临时结果。<br>
+                        通过 Tauri 事件系统发送进度更新：<br>
+                        • import-progress: 进度更新<br>
+                        • import-complete: 导入完成
+                    </p>
+                </div>
+                <div class="model-card">
+                    <h4>批量插入优化</h4>
+                    <p style="color: #aaa; font-size: 0.9rem;">
+                        使用 PostgreSQL COPY 命令批量插入：<br>
+                        • COPY table FROM STDIN<br>
+                        • 动态批次大小（100-1000条）<br>
+                        • 连接池管理（r2d2）
+                    </p>
+                </div>
+                <div class="model-card">
+                    <h4>GDAL 类型映射</h4>
+                    <p style="color: #aaa; font-size: 0.9rem;">
+                        GDAL 字段类型 → PostgreSQL 类型：<br>
+                        • Integer → INTEGER<br>
+                        • Integer64 → BIGINT<br>
+                        • Real → DOUBLE PRECISION<br>
+                        • String → VARCHAR(255)<br>
+                        • DateTime → TIMESTAMP
+                    </p>
+                </div>
+                <div class="model-card">
+                    <h4>配置持久化</h4>
+                    <p style="color: #aaa; font-size: 0.9rem;">
+                        数据库配置存储位置：<br>
+                        ~/.config/spatial-import-tool/db_config.json<br>
+                        <br>
+                        支持多个命名配置，记录活动配置。
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

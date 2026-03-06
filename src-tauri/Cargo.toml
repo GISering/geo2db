@@ -26,12 +26,10 @@ gdal = { version = "0.19", features = [] }
 # PostgreSQL
 postgres = "0.19"
 postgis = "0.9"
-r2d2 = "0.8"
-r2d2_postgres = "0.18"
 bytes = "1"
 
-# 达梦数据库 (通过 JDBC)
-# jni-rs = "0.5"
+# 达梦数据库 (通过 ODBC)
+odbc-api = { version = "10", features = ["iodbc"] }
 
 # 异步运行时
 tokio = { version = "1", features = ["full"] }

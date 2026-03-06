@@ -26,7 +26,10 @@
       "Bash(cargo doc --open gdal)",
       "Bash(npm:*)",
       "Bash(ls:*)",
-      "Bash(ogrinfo:*)"
+      "Bash(ogrinfo:*)",
+      "WebSearch",
+      "Bash(cargo doc:*)",
+      "Bash(grep:*)"
     ]
   }
 }
