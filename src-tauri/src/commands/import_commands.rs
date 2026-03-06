@@ -740,9 +740,29 @@ pub fn import_file(config: ImportConfig, app_handle: AppHandle) -> Result<Import
     let app_handle_for_complete = app_handle.clone();
     std::thread::spawn(move || {
         info!("后台线程启动");
-        let result = do_import_in_background(config, handle);
-        info!("导入完成，发送结果事件");
-        let _ = app_handle_for_complete.emit("import-complete", result);
+
+        // 使用 catch_unwind 捕获 panic
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            do_import_in_background(config, handle)
+        }));
+
+        match result {
+            Ok(import_result) => {
+                info!("导入完成，发送结果事件");
+                let _ = app_handle_for_complete.emit("import-complete", import_result);
+            }
+            Err(panic_info) => {
+                error!("导入过程中发生 panic: {:?}", panic_info);
+                let error_result = ImportResult {
+                    success: false,
+                    imported_count: 0,
+                    error_count: 1,
+                    errors: vec!["导入过程中发生内部错误，请查看日志".to_string()],
+                    duration_ms: 0,
+                };
+                let _ = app_handle_for_complete.emit("import-complete", error_result);
+            }
+        }
     });
 
     Ok(ImportResult {

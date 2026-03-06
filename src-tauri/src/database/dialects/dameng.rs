@@ -10,7 +10,8 @@ impl SqlDialect for DamengDialect {
     }
 
     fn geometry_type_name(&self) -> &str {
-        "ST_GEOMETRY"
+        // 达梦空间扩展需要指定 sysgeo2 schema
+        "sysgeo2.ST_GEOMETRY"
     }
 
     fn auto_increment_pk(&self) -> &str {
@@ -18,7 +19,7 @@ impl SqlDialect for DamengDialect {
     }
 
     fn geom_from_wkt(&self, wkt_param: &str, srid_param: &str) -> String {
-        // sysgeo2 空间扩展使用 dmgeo2 schema
+        // dmgeo2 空间扩展用于函数调用
         format!("dmgeo2.ST_GeomFromText({}, {})", wkt_param, srid_param)
     }
 

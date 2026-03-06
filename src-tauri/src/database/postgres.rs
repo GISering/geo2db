@@ -81,6 +81,9 @@ pub fn test_connection(config: &DbConfig) -> ConnectionTestResult {
         config.host, config.port, config.database, config.username, config.password
     );
 
+    log::info!("测试数据库连接: host={}, port={}, dbname={}, user={}",
+        config.host, config.port, config.database, config.username);
+
     match Client::connect(&conn_string, postgres::NoTls) {
         Ok(mut client) => {
             let version: String = client
@@ -88,17 +91,21 @@ pub fn test_connection(config: &DbConfig) -> ConnectionTestResult {
                 .map(|row| row.get(0))
                 .unwrap_or_else(|_| "Unknown".to_string());
 
+            log::info!("数据库连接成功, 版本: {}", version);
             ConnectionTestResult {
                 success: true,
                 message: "连接成功".to_string(),
                 server_version: Some(version),
             }
         }
-        Err(e) => ConnectionTestResult {
-            success: false,
-            message: e.to_string(),
-            server_version: None,
-        },
+        Err(e) => {
+            log::error!("数据库连接失败: {}", e);
+            ConnectionTestResult {
+                success: false,
+                message: e.to_string(),
+                server_version: None,
+            }
+        }
     }
 }
 
