@@ -1,10 +1,23 @@
-use crate::models::{ConnectionTestResult, DbConfig, DbConfigList, DbType};
+use crate::models::{ConnectionTestResult, DamengDriverStatus, DbConfig, DbConfigList, DbType};
 
 #[tauri::command]
 pub fn test_connection(config: DbConfig) -> ConnectionTestResult {
     match config.db_type {
         DbType::PostgreSQL => crate::database::postgres::test_connection(&config),
         DbType::Dameng => crate::database::dameng::test_connection(&config),
+    }
+}
+
+#[tauri::command]
+pub fn check_dameng_driver() -> DamengDriverStatus {
+    let installed = crate::database::dameng::check_driver_installed();
+    DamengDriverStatus {
+        installed,
+        message: if installed {
+            "DM8 ODBC 驱动已安装".to_string()
+        } else {
+            "未检测到 DM8 ODBC 驱动，请先安装驱动".to_string()
+        },
     }
 }
 

@@ -10,6 +10,7 @@ import type {
   ImportConfig,
   ImportResult,
   ConnectionTestResult,
+  DamengDriverStatus,
   AppStep,
   ImportMode,
   LayerInfo,
@@ -25,7 +26,7 @@ export function useImport() {
   const [dbConfig, setDbConfig] = useState<DbConfig>({
     db_type: 'PostgreSQL',
     host: 'localhost',
-    port: 10001,
+    port: 5432,
     database: 'gis',
     username: 'postgres',
     password: '',
@@ -40,6 +41,19 @@ export function useImport() {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionResult, setConnectionResult] = useState<ConnectionTestResult | null>(null);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
+  const [damengDriverStatus, setDamengDriverStatus] = useState<DamengDriverStatus | null>(null);
+
+  // 检测达梦驱动
+  const checkDamengDriver = useCallback(async (): Promise<DamengDriverStatus | null> => {
+    try {
+      const status = await invoke<DamengDriverStatus>('check_dameng_driver');
+      setDamengDriverStatus(status);
+      return status;
+    } catch (e) {
+      console.error('检测驱动失败:', e);
+      return null;
+    }
+  }, []);
 
   // 监听导入进度事件
   useEffect(() => {
@@ -330,6 +344,8 @@ export function useImport() {
     isTestingConnection,
     connectionResult,
     importProgress,
+    damengDriverStatus,
+    checkDamengDriver,
     reset,
   };
 }

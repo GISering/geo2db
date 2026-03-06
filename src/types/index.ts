@@ -92,5 +92,11 @@ export interface ConnectionTestResult {
   server_version: string | null;
 }
 
+// 达梦驱动状态
+export interface DamengDriverStatus {
+  installed: boolean;
+  message: string;
+}
+
 // 应用步骤
 export type AppStep = 'files' | 'import' | 'progress';

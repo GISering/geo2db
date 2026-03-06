@@ -27,6 +27,7 @@ pub fn run() {
             file_commands::list_layers,
             file_commands::get_supported_drivers,
             db_commands::test_connection,
+            db_commands::check_dameng_driver,
             db_commands::save_config,
             db_commands::delete_config,
             db_commands::load_config,

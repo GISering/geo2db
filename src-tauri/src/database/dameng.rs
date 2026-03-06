@@ -57,7 +57,20 @@ pub fn test_connection(config: &DbConfig) -> ConnectionTestResult {
 pub struct DamengConnection {
     #[allow(dead_code)]
     env: Arc<Environment>,
-    conn: odbc_api::Connection<'static>,
+    conn: Option<odbc_api::Connection<'static>>,
+}
+
+impl Drop for DamengConnection {
+    fn drop(&mut self) {
+        // 安全地关闭连接，避免 panic
+        if let Some(conn) = self.conn.take() {
+            // 使用 catch_unwind 防止 drop 时 panic
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                // 显式关闭连接
+                drop(conn);
+            }));
+        }
+    }
 }
 
 impl DamengConnection {
@@ -83,13 +96,13 @@ impl DamengConnection {
 
         Ok(DamengConnection {
             env,
-            conn: conn_static,
+            conn: Some(conn_static),
         })
     }
 
     /// 执行 SQL（不带参数）
     pub fn execute(&self, sql: &str) -> Result<(), String> {
-        self.conn.execute(sql, ())
+        self.conn.as_ref().unwrap().execute(sql, ())
             .map_err(|e| format!("执行 SQL 失败: {:?}", e))?;
         Ok(())
     }
@@ -101,7 +114,7 @@ impl DamengConnection {
             escape_sql_string(&table_name.to_uppercase())
         );
 
-        match self.conn.execute(&sql, ()) {
+        match self.conn.as_mut().unwrap().execute(&sql, ()) {
             Ok(Some(mut cursor)) => {
                 match cursor.next_row() {
                     Ok(Some(mut row)) => {
@@ -135,7 +148,7 @@ impl DamengConnection {
             escape_sql_string(&table_name.to_uppercase())
         );
 
-        match self.conn.execute(&sql, ()) {
+        match self.conn.as_mut().unwrap().execute(&sql, ()) {
             Ok(Some(mut cursor)) => {
                 let mut columns = Vec::new();
 
@@ -171,7 +184,7 @@ impl DamengConnection {
 
     /// 开始事务
     pub fn begin_transaction(&mut self) -> Result<DamengTransaction, String> {
-        self.conn.set_autocommit(false)
+        self.conn.as_mut().unwrap().set_autocommit(false)
             .map_err(|e| format!("关闭自动提交失败: {:?}", e))?;
 
         Ok(DamengTransaction {
@@ -196,16 +209,17 @@ impl<'a> DamengTransaction<'a> {
         srs: i32,
         batch: &[(String, Vec<DamengFieldValue>)],
     ) -> Result<usize, String> {
-        batch_insert_dameng_impl(&mut self.conn.conn, table_name, field_names, srs, batch)
+        let conn = self.conn.conn.as_mut().unwrap();
+        batch_insert_dameng_impl(conn, table_name, field_names, srs, batch)
     }
 
     /// 提交事务
     pub fn commit(mut self) -> Result<(), String> {
-        self.conn.conn.commit()
+        self.conn.conn.as_mut().unwrap().commit()
             .map_err(|e| format!("提交事务失败: {:?}", e))?;
         self.committed = true;
 
-        self.conn.conn.set_autocommit(true)
+        self.conn.conn.as_mut().unwrap().set_autocommit(true)
             .map_err(|e| format!("恢复自动提交失败: {:?}", e))?;
 
         Ok(())
@@ -215,9 +229,13 @@ impl<'a> DamengTransaction<'a> {
 impl<'a> Drop for DamengTransaction<'a> {
     fn drop(&mut self) {
         if !self.committed {
-            let _ = self.conn.conn.rollback();
+            if let Some(conn) = self.conn.conn.as_mut() {
+                let _ = conn.rollback();
+            }
         }
-        let _ = self.conn.conn.set_autocommit(true);
+        if let Some(conn) = self.conn.conn.as_mut() {
+            let _ = conn.set_autocommit(true);
+        }
     }
 }
 
@@ -240,7 +258,8 @@ pub fn batch_insert_dameng(
     srs: i32,
     batch: &[(String, Vec<DamengFieldValue>)],
 ) -> Result<usize, String> {
-    batch_insert_dameng_impl(&mut conn.conn, table_name, field_names, srs, batch)
+    let conn = conn.conn.as_mut().unwrap();
+    batch_insert_dameng_impl(conn, table_name, field_names, srs, batch)
 }
 
 /// 批量插入实现 - 直接操作 ODBC 连接
@@ -312,6 +331,21 @@ fn batch_insert_dameng_impl(
 fn escape_sql_string(s: &str) -> String {
     s.replace('\'', "''")
         .replace('\\', "\\\\")
+}
+
+/// 检查达梦 ODBC 驱动是否已安装
+pub fn check_driver_installed() -> bool {
+    if let Ok(env) = Environment::new() {
+        if let Ok(drivers) = env.drivers() {
+            for driver in drivers {
+                let desc = &driver.description;
+                if desc.contains("DM8") || desc.to_lowercase().contains("dameng") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// 创建达梦数据库连接

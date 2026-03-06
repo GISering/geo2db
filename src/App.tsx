@@ -43,6 +43,8 @@ function App() {
     startImport,
     reset,
     importProgress,
+    damengDriverStatus,
+    checkDamengDriver,
   } = useImport();
 
   // 状态：是否显示添加/编辑数据源弹窗
@@ -72,7 +74,7 @@ function App() {
     setDbConfig({
       db_type: 'PostgreSQL',
       host: 'localhost',
-      port: 10001,
+      port: 5432,
       database: 'gis',
       username: 'postgres',
       password: '',
@@ -122,6 +124,8 @@ function App() {
               isTesting={isTestingConnection}
               testResult={connectionResult}
               isNew={true}
+              damengDriverStatus={damengDriverStatus}
+              onCheckDamengDriver={checkDamengDriver}
             />
           </div>
         </main>

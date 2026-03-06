@@ -29,7 +29,7 @@ export function DbConfigPanel({
     if (field === 'db_type') {
       newConfig.db_type = value as DbType;
       if (value === 'PostgreSQL') {
-        newConfig.port = 10001;
+        newConfig.port = 5432;
       } else if (value === 'Dameng') {
         newConfig.port = 5236;
       }
@@ -102,8 +102,67 @@ export function DbConfigPanel({
               onChange={() => handleChange('db_type', 'Dameng')}
             />
             <span>达梦数据库</span>
+            <span
+              className="dameng-tip-icon"
+              title="需要安装 ODBC 驱动，点击查看详情"
+              style={{
+                marginLeft: '6px',
+                color: '#ad6800',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                handleChange('db_type', 'Dameng');
+              }}
+            >
+              ⚠️ 需安装驱动
+            </span>
           </label>
         </div>
+        {config.db_type === 'Dameng' && (
+          <div className="dameng-tip" style={{
+            marginTop: '8px',
+            padding: '12px',
+            backgroundColor: '#fff7e6',
+            border: '1px solid #ffd591',
+            borderRadius: '4px',
+            fontSize: '13px',
+            color: '#595959'
+          }}>
+            <div style={{ marginBottom: '8px', fontWeight: 'bold', color: '#ad6800' }}>
+              达梦数据库 ODBC 驱动安装说明：
+            </div>
+            <div style={{ marginBottom: '8px' }}>
+              <strong>1. 下载驱动</strong>
+              <div style={{ marginLeft: '16px', marginTop: '4px' }}>
+                请从此链接下载 Windows 版本 ODBC 驱动程序包：
+              </div>
+              <div style={{ marginLeft: '16px', marginTop: '4px' }}>
+                <a
+                  href="https://dn.navicat.com/drivers/dameng_odbc_win.zip"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#1890ff' }}
+                >
+                  https://dn.navicat.com/drivers/dameng_odbc_win.zip
+                </a>
+              </div>
+            </div>
+            <div>
+              <strong>2. 解压缩包</strong>
+              <div style={{ marginLeft: '16px', marginTop: '4px' }}>
+                将下载的 .zip 文件内容解压到计算机上的某个位置，例如：C:\dameng_odbc
+              </div>
+            </div>
+            <div style={{ marginTop: '8px' }}>
+              <strong>3. 运行安装脚本</strong>
+              <div style={{ marginLeft: '16px', marginTop: '4px' }}>
+                定位到解压的驱动文件所在路径，双击 <code style={{ backgroundColor: '#f5f5f5', padding: '2px 6px', borderRadius: '3px' }}>install_odbc.bat</code> 文件开始安装。
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="form-row">
@@ -121,8 +180,8 @@ export function DbConfigPanel({
           <input
             type="number"
             value={config.port}
-            onChange={(e) => handleChange('port', parseInt(e.target.value) || 10001)}
-            placeholder={config.db_type === 'PostgreSQL' ? '10001' : '5236'}
+            onChange={(e) => handleChange('port', parseInt(e.target.value) || 5432)}
+            placeholder={config.db_type === 'PostgreSQL' ? '5432' : '5236'}
           />
         </div>
       </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Card, Button, List, Input, Radio, Form, Space, Typography, message } from 'antd';
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import type { DbConfig, DbType, NamedDbConfig, ConnectionTestResult } from '../types';
+import { Card, Button, List, Input, Radio, Form, Space, Typography, Tag } from 'antd';
+import { DeleteOutlined, PlusOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
+import type { DbConfig, DbType, NamedDbConfig, ConnectionTestResult, DamengDriverStatus } from '../types';
 
 const { Text } = Typography;
 
@@ -103,6 +103,8 @@ interface DbConfigEditorProps {
   isTesting: boolean;
   testResult: ConnectionTestResult | null;
   isNew?: boolean;
+  damengDriverStatus: DamengDriverStatus | null;
+  onCheckDamengDriver: () => Promise<DamengDriverStatus | null>;
 }
 
 export function DbConfigEditor({
@@ -114,27 +116,18 @@ export function DbConfigEditor({
   onSave,
   onCancel,
   isTesting,
-  testResult,
+  testResult: _testResult,
   isNew = false,
+  damengDriverStatus,
+  onCheckDamengDriver,
 }: DbConfigEditorProps) {
-  // 监听 testResult 变化，显示气泡提示
-  useEffect(() => {
-    if (testResult) {
-      if (testResult.success) {
-        message.success('连接成功', 3);
-      } else {
-        message.error('连接失败: ' + testResult.message, 5);
-      }
-    }
-  }, [testResult]);
-
   const handleChange = (field: keyof DbConfig, value: string | number | DbType) => {
     const newConfig: DbConfig = { ...config };
     // 如果选择数据库类型，默认端口自动设置
     if (field === 'db_type') {
       newConfig.db_type = value as DbType;
       if (value === 'PostgreSQL') {
-        newConfig.port = 10001;
+        newConfig.port = 5432;
       } else if (value === 'Dameng') {
         newConfig.port = 5236;
       }
@@ -143,6 +136,13 @@ export function DbConfigEditor({
     }
     onChange(newConfig);
   };
+
+  // 当选择达梦数据库时，检测驱动
+  useEffect(() => {
+    if (config.db_type === 'Dameng') {
+      onCheckDamengDriver();
+    }
+  }, [config.db_type, onCheckDamengDriver]);
 
   return (
     <Card
@@ -164,8 +164,58 @@ export function DbConfigEditor({
             onChange={(e) => handleChange('db_type', e.target.value)}
           >
             <Radio value="PostgreSQL">PostgreSQL / PostGIS</Radio>
-            <Radio value="Dameng">达梦数据库</Radio>
+            <Radio value="Dameng">
+              达梦数据库
+              {config.db_type === 'Dameng' && damengDriverStatus && (
+                <Tag
+                  color={damengDriverStatus.installed ? 'success' : 'warning'}
+                  style={{ marginLeft: '8px' }}
+                  icon={damengDriverStatus.installed ? <CheckCircleOutlined /> : <WarningOutlined />}
+                >
+                  {damengDriverStatus.message}
+                </Tag>
+              )}
+            </Radio>
           </Radio.Group>
+          {config.db_type === 'Dameng' && !damengDriverStatus?.installed && (
+            <div style={{
+              marginTop: '12px',
+              padding: '12px',
+              backgroundColor: '#fffbe6',
+              border: '1px solid #ffe58f',
+              borderRadius: '4px',
+              fontSize: '13px',
+              color: '#595959'
+            }}>
+              <div style={{ marginBottom: '8px', fontWeight: 'bold', color: '#d48806' }}>
+                达梦数据库 ODBC 驱动安装说明：
+              </div>
+              <div style={{ marginBottom: '8px' }}>
+                <strong>1. 下载驱动</strong>
+                <div style={{ marginLeft: '16px', marginTop: '4px' }}>
+                  <a
+                    href="https://dn.navicat.com/drivers/dameng_odbc_win.zip"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    https://dn.navicat.com/drivers/dameng_odbc_win.zip
+                  </a>
+                </div>
+              </div>
+              <div style={{ marginBottom: '8px' }}>
+                <strong>2. 解压缩包</strong>
+                <div style={{ marginLeft: '16px', marginTop: '4px' }}>
+                  将下载的 .zip 文件内容解压到计算机上的某个位置，例如：C:\dameng_odbc
+                </div>
+              </div>
+              <div>
+                <strong>3. 运行安装脚本</strong>
+                <div style={{ marginLeft: '16px', marginTop: '4px' }}>
+                  定位到解压的驱动文件所在路径，双击 <code style={{ backgroundColor: '#f5f5f5', padding: '2px 6px', borderRadius: '3px' }}>install_odbc.bat</code> 文件开始安装。
+                </div>
+              </div>
+            </div>
+          )}
         </Form.Item>
 
         <Space size="middle" style={{ width: '100%' }}>
@@ -180,8 +230,8 @@ export function DbConfigEditor({
             <Input
               type="number"
               value={config.port}
-              onChange={(e) => handleChange('port', parseInt(e.target.value) || 10001)}
-              placeholder="10001"
+              onChange={(e) => handleChange('port', parseInt(e.target.value) || 5432)}
+              placeholder="5432"
             />
           </Form.Item>
         </Space>

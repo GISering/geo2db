@@ -110,3 +110,10 @@ pub struct ConnectionTestResult {
     pub message: String,
     pub server_version: Option<String>,
 }
+
+/// 达梦驱动状态
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DamengDriverStatus {
+    pub installed: bool,
+    pub message: String,
+}
