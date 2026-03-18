@@ -29,7 +29,8 @@
       "Bash(ogrinfo:*)",
       "WebSearch",
       "Bash(cargo doc:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(npx tauri:*)"
     ]
   }
 }

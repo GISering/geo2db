@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14b8a6"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="ocean" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#1e1b4b" flood-opacity="0.3"/>
+    </filter>
+    <clipPath id="globe">
+      <circle cx="170" cy="170" r="100"/>
+    </clipPath>
+  </defs>
+
+  <!-- 背景 -->
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#bg)" filter="url(#shadow)"/>
+
+  <!-- 地球 -->
+  <g transform="translate(70, 70)">
+    <circle cx="100" cy="100" r="100" fill="url(#ocean)"/>
+
+    <g clip-path="url(#globe)">
+      <ellipse cx="50" cy="65" rx="40" ry="35" fill="#34d399" opacity="0.9"/>
+      <ellipse cx="130" cy="55" rx="50" ry="40" fill="#34d399" opacity="0.9"/>
+      <ellipse cx="85" cy="130" rx="30" ry="45" fill="#34d399" opacity="0.9"/>
+      <ellipse cx="170" cy="140" rx="35" ry="30" fill="#34d399" opacity="0.9"/>
+    </g>
+
+    <circle cx="100" cy="100" r="100" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
+  </g>
+
+  <!-- 数据库 -->
+  <g transform="translate(280, 300)">
+    <ellipse cx="70" cy="18" rx="60" ry="20" fill="#f1f5f9"/>
+    <rect x="10" y="18" width="120" height="75" fill="#f1f5f9"/>
+    <ellipse cx="70" cy="93" rx="60" ry="20" fill="#e2e8f0"/>
+
+    <ellipse cx="70" cy="45" rx="60" ry="16" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+    <ellipse cx="70" cy="70" rx="60" ry="16" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+    <ellipse cx="70" cy="18" rx="60" ry="20" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>
+
+    <circle cx="55" cy="42" r="8" fill="url(#teal)"/>
+    <circle cx="85" cy="68" r="8" fill="url(#teal)" opacity="0.7"/>
+  </g>
+
+  <!-- 箭头 -->
+  <path d="M220 150 Q290 170 345 240 L365 220 L405 285 L340 268 L360 248 Q300 180 240 158 Q230 154 220 152Z" fill="url(#teal)" opacity="0.95"/>
+
+  <!-- 数据点 -->
+  <circle cx="195" cy="140" r="5" fill="rgba(255,255,255,0.6)"/>
+  <circle cx="210" cy="155" r="4" fill="rgba(255,255,255,0.5)"/>
+  <circle cx="200" cy="170" r="5.5" fill="rgba(255,255,255,0.55)"/>
+</svg>
